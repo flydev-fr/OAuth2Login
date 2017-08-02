@@ -104,10 +104,10 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
                         }
                     }
                 }
-
-                $this->run();
             }
         });
+
+        $this->run();
     }
 
     public function run()
@@ -116,6 +116,9 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
         $input = wire('input');
         $config = wire('config');
         $user = wire('user');
+
+        $user = wire('user');
+        $session = wire('session');
 
         $provider_name = $this->getProviderName();
 
@@ -236,6 +239,8 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
             }
 
         }
+
+
     }
 
     /*
