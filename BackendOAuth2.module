@@ -1,11 +1,5 @@
 <?php namespace ProcessWire;
 
-/** @var User $user */
-/** @var Config $config */
-/** @var Modules $modules */
-use League\OAuth2\Client\Provider\Facebook;
-
-/** @var Sanitizer $sanitizer */
 
 class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
 
