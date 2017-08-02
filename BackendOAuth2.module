@@ -370,7 +370,6 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
             'redirectUri'   => $this->str_lreplace('//', '/', $config->urls->httpRoot . $config->urls->admin)
         );
         $params = array_merge($params, $options);
-        bd($params);
         switch ($providerName) {
             case 'provider_google':
                 $this->provider = new $this->data['google_class']($params);
