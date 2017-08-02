@@ -91,7 +91,7 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
 
     public function init() {
 
-        $this->config->styles->add($this->config->urls->Oauth2 . 'BackendOAuth2.css');
+        $this->config->styles->add($this->config->urls->BackendOAuth2 . 'BackendOAuth2.css');
 
         $this->addHookAfter('Page::render', function($event) {
             $template = $event->object->template;
