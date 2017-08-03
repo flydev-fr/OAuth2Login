@@ -7,17 +7,18 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
     protected $data;
     public static $_data;
     protected $provider;
+    protected $allProviders = array();
 
 
     public static function getModuleInfo()
     {
         return [
             'title' => 'BackendOAuth2',
-            'version' => 1,
+            'version' => "0.0.2",
             'summary' => '',
             'author' => 'flydev',
             'href' => 'https://processwire.com',
-            'singular' => true,
+            'singular' => false,
             'autoload' => true,
             'icon' => 'plug',
             'requires' => [
@@ -92,34 +93,20 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
             $id = $event->object->id;
 
             if ($template == 'admin' && $id === 23 && !wire('user')->isLoggedin()) {
-                foreach ($this->data as $key => $val) {
-                    if(strstr($key, 'provider_') && $val === 1) {
-                        $provider = str_replace('provider_', '', $key);
-                        if(class_exists('League\OAuth2\Client\Provider\\' . $provider)) {
-                            $event->return = $this->renderForm($event->return, "{$key}_form", $provider);
-                        }
-                        else {
-                            $this->log("The class for {$provider} doesn't exist! Run composer require league/oauth2-{$provider} to use this login provider.");
-                            continue;
-                        }
-                    }
-                }
+                $form = $this->render();
+                $event->return = $this->replaceForm($event->return, '</form>', $form);
             }
         });
 
         $this->run();
     }
 
-    public function run()
-    {
-        $session = wire('session');
+    public function run() {
+
         $input = wire('input');
         $config = wire('config');
         $user = wire('user');
-
-        $user = wire('user');
         $session = wire('session');
-
         $provider_name = $this->getProviderName();
 
         if(!$this->setProvider($provider_name)) {
@@ -167,11 +154,13 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
 
                 // FACEBOOK
                 case 'provider_facebook':
-                    $date1 = new \DateTime("now");
-                    $date2 = new \DateTime();
-                    $date2->setTimestamp($this->data['facebook_token']['expires']);
-                    $interval = $date1->diff($date2);
-                    if(!empty($this->data['facebook_long_token']) && $interval->days > 1) {
+                    if(isset($this->data['facebook_token']['expires'])) {
+                        $date1 = new \DateTime("now");
+                        $date2 = new \DateTime();
+                        $date2->setTimestamp($this->data['facebook_token']['expires']);
+                        $interval = $date1->diff($date2);
+                    }
+                    if(!empty($this->data['facebook_long_token']) && isset($interval) && $interval->days > 1) {
                         $redirect_uri = $this->str_lreplace('//', '/', $config->urls->httpRoot . $config->urls->admin);
                         $url = "https://graph.facebook.com/oauth/client_code?access_token={$this->data['facebook_long_token']}&client_secret={$this->data['facebook_secret']}&redirect_uri={$redirect_uri}&client_id={$this->data['facebook_appid']}";
                         $http = new WireHttp();
@@ -253,12 +242,17 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
 
     protected function replaceForm($event_ret, $start_html, $form) {
 
-        $html = $this->str_lreplace($start_html, '</form>' . $form->render(), $event_ret);
+        if($form instanceof InputfieldForm)
+            $ret = $form->render();
+        else
+            $ret = $form;
+
+        $html = $this->str_lreplace($start_html, '</form>' . $ret, $event_ret);
 
         return $html;
     }
 
-    protected function renderForm($event_ret, $formid, $provider) {
+    protected function getForm($formid) {
 
         $modules = wire('modules');
 
@@ -267,13 +261,53 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
         $form->method = 'post';
         $form->attr('id+name', $formid);
 
-        $field = $modules->get("InputfieldSubmit");
-        $field->value = "Login with {$provider}";
-        //$field->icon = "{$provider}";
-        $field->attr('id+name', "provider_{$provider}");
-        $form->append($field);
+        return $form;
+    }
 
-        return $this->replaceForm($event_ret, '</form>', $form);
+
+    /*
+     *  render a login form
+     */
+    public function render($options = array()) {
+
+        $modules = wire('modules');
+
+        $defaultOptions = array(
+            'formId' => 'socials_login_form',
+            'formClass' => '',
+            'buttonClass' => '',
+            'prependMarkup' => '',
+            'appendMarkup' => ''
+        );
+        $options = array_merge($defaultOptions, $options);
+
+        $out = '';
+        $form = $this->getForm($options['formId']);
+        $form->prependMarkup = $options['prependMarkup'];
+        $form->appendMarkup = $options['prependMarkup'];
+        
+        foreach ($this->data as $key => $val) {
+            if(strstr($key, 'provider_') && $val === 1) {
+                $provider = str_replace('provider_', '', $key);
+                if(class_exists('League\OAuth2\Client\Provider\\' . $provider)) {
+                    array_push($this->allProviders, $key);
+
+                    $field = $modules->get("InputfieldSubmit");
+                    $field->value = "Login with {$provider}";
+                    //$field->icon = "{$provider}";
+                    $field->attr('id+name', "provider_{$provider}");
+                    if(!empty($options['buttonClass'])) $field->attr('class', $options['buttonClass']);
+                    $form->append($field);
+                }
+            }
+        }
+
+        //$out .= $form->prependMarkup;
+        $out .= $form->render();
+        //$out .= $form->appendMarkup;
+
+        return $out;
+
     }
 
     /*
