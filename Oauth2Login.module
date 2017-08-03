@@ -1,11 +1,13 @@
 <?php namespace ProcessWire;
 
 
-class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
+class Oauth2Login extends WireData implements Module, ConfigurableModule {
 
     const minVersion = "3.0.0";
+
     protected $data;
     public static $_data;
+    protected $backendUrl;
     protected $provider;
     protected $allProviders = array();
 
@@ -13,9 +15,9 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
     public static function getModuleInfo()
     {
         return [
-            'title' => 'BackendOAuth2',
+            'title' => 'OAuth2Login',
             'version' => "0.0.2",
-            'summary' => '',
+            'summary' => 'OAuth2 login for ProcessWire.',
             'author' => 'flydev',
             'href' => 'https://processwire.com',
             'singular' => false,
@@ -43,8 +45,6 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
             'linkedin_token'    => '',
             'linkedin_expire'   => '',
             'facebook_token'    => '',
-            'facebook_long_token' => '',
-            'facebook_expire'   => '',
 
             'google_class'   => '\League\OAuth2\Client\Provider\Google',
             'facebook_class' => '\League\OAuth2\Client\Provider\Facebook',
@@ -63,7 +63,6 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
         );
     }
 
-
     public function ___install() {
 
         if(version_compare($this->config->version, self::minVersion, '<'))
@@ -74,25 +73,30 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
 
     public function __construct() {
 
-        $this->set('provider', null);
+        $this->provider = null;
 
         foreach(self::getDefaultData() as $key => $value) {
             $this->$key = $value;
         }
 
         self::$_data = $this;
+
         parent::__construct();
     }
 
     public function init() {
 
-        $this->config->styles->add($this->config->urls->BackendOAuth2 . 'BackendOAuth2.css');
+        $this->config->styles->add($this->config->urls->Oauth2Login . 'Oauth2Login.css');
+
+        $this->backendUrl = $this->str_lreplace('//', '/', wire('config')->urls->httpRoot . wire('config')->urls->admin);
 
         $this->addHookAfter('Page::render', function($event) {
             $template = $event->object->template;
             $id = $event->object->id;
 
             if ($template == 'admin' && $id === 23 && !wire('user')->isLoggedin()) {
+                $this->setRedirectUri($this->backendUrl);
+                $this->setRedirectSuccessUri($this->backendUrl);
                 $form = $this->render();
                 $event->return = $this->replaceForm($event->return, '</form>', $form);
             }
@@ -101,19 +105,23 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
         $this->run();
     }
 
-    public function run() {
+    protected function ___run() {
 
         $input = wire('input');
-        $config = wire('config');
         $user = wire('user');
         $session = wire('session');
-        $provider_name = $this->getProviderName();
 
-        if(!$this->setProvider($provider_name)) {
-            return false;
-        }
+        $provider_name = $this->getProviderName();
+        if(!$this->setProvider($provider_name)) return false;
 
         if(isset($input->post->{$provider_name})  && !$user->isLoggedin()) {
+
+            try {
+                $session->CSRF->validate();
+            }
+            catch (WireCSRFException $e) {
+                $this->log('SessionToken is invalid, possible CSRF attack in progress');
+            }
 
             if (empty($input->get->code)) {
                 $options = array();
@@ -127,7 +135,8 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
                 $session->set('oauth2state', $this->provider->getState());
                 $session->set('provider', $provider_name);
                 $session->redirect($authUrl);
-            } elseif (empty($input->get->state) || $input->get->state !== $session->get('oauth2state')) {
+            }
+            elseif (empty($input->get->state) || $input->get->state !== $session->get('oauth2state')) {
                 $this->log('State is invalid, possible CSRF attack in progress');
                 $session->remove('oauth2state');
                 $session->remove('provider');
@@ -154,42 +163,19 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
 
                 // FACEBOOK
                 case 'provider_facebook':
-                    if(isset($this->data['facebook_token']['expires'])) {
-                        $date1 = new \DateTime("now");
-                        $date2 = new \DateTime();
-                        $date2->setTimestamp($this->data['facebook_token']['expires']);
-                        $interval = $date1->diff($date2);
-                    }
-                    if(!empty($this->data['facebook_long_token']) && isset($interval) && $interval->days > 1) {
-                        $redirect_uri = $this->str_lreplace('//', '/', $config->urls->httpRoot . $config->urls->admin);
-                        $url = "https://graph.facebook.com/oauth/client_code?access_token={$this->data['facebook_long_token']}&client_secret={$this->data['facebook_secret']}&redirect_uri={$redirect_uri}&client_id={$this->data['facebook_appid']}";
-                        $http = new WireHttp();
-                        $json = $http->getJSON($url);
-                        $token = $this->provider->getAccessToken('authorization_code', $json);
-                        $this->data['facebook_long_token'] = $token->getToken();
-                        $this->data['facebook_expire'] = $token->getExpires();
-                    }
-                    else {
-                        $token = $this->provider->getAccessToken('authorization_code', [
-                            'code' => $input->get->code
-                        ]);
-                        $this->data['facebook_token'] = $token;
-                        $ltoken = $this->provider->getLongLivedAccessToken($token->getToken());
-                        $this->data['facebook_long_token'] = $ltoken->getToken();
-                        if(!empty($this->data['facebook_long_token'])) $this->save();
-                    }
-                    break;
-
-
                 // LINKEDIN
                 case 'provider_linkedin':
-                    // GITHUB
+                // GITHUB
                 case 'provider_github':
                     $token = $this->provider->getAccessToken('authorization_code', [
                         'code' => $input->get->code
                     ]);
                     break;
 
+                default:
+                    $session->remove('oauth2state');
+                    $session->remove('provider');
+                    $token =  null;
             }
 
             if(is_null($token)) return false;
@@ -216,15 +202,14 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
                     if ($loginUser && $loginUser->id) {
                         $this->log("Used {$provider_name} to login for user: $loginUser->name");
                         $session->set('forceLogin', true);
-                        $session->redirect($config->urls->admin);
+                        if(!empty($session->getFor($this, 'success_uri')))
+                            $session->redirect($session->getFor($this, 'success_uri'));
                     }
                 }
-
-
             } catch (Exception $e) {
                 $this->log('Something went wrong: ' . $e->getMessage());
                 //$session->redirect($config->urls->admin);
-                throw new WireException($e->getMessage());
+                throw new WireException(__("Something went wrong: Please advise the administrator"));
             }
 
         }
@@ -242,11 +227,7 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
 
     protected function replaceForm($event_ret, $start_html, $form) {
 
-        if($form instanceof InputfieldForm)
-            $ret = $form->render();
-        else
-            $ret = $form;
-
+        $ret = ($form instanceof InputfieldForm) ? $form->render() : $form;
         $html = $this->str_lreplace($start_html, '</form>' . $ret, $event_ret);
 
         return $html;
@@ -264,50 +245,49 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
         return $form;
     }
 
-
     /*
      *  render a login form
      */
     public function render($options = array()) {
 
         $modules = wire('modules');
-
         $defaultOptions = array(
-            'formId' => 'socials_login_form',
             'formClass' => '',
             'buttonClass' => '',
+            'buttonValue' => '',
             'prependMarkup' => '',
             'appendMarkup' => ''
         );
         $options = array_merge($defaultOptions, $options);
-
-        $out = '';
-        $form = $this->getForm($options['formId']);
+        $form = $this->getForm('socialsLoginForm');
         $form->prependMarkup = $options['prependMarkup'];
         $form->appendMarkup = $options['prependMarkup'];
-        
+        $out = '';
         foreach ($this->data as $key => $val) {
             if(strstr($key, 'provider_') && $val === 1) {
                 $provider = str_replace('provider_', '', $key);
-                if(class_exists('League\OAuth2\Client\Provider\\' . $provider)) {
+                $provider = ucfirst($provider);
+                if(class_exists('\League\OAuth2\Client\Provider\\' . $provider)) {
                     array_push($this->allProviders, $key);
 
                     $field = $modules->get("InputfieldSubmit");
-                    $field->value = "Login with {$provider}";
+                    if(strstr($options['buttonValue'], '{provider}')) {
+                        $field->value = str_replace('{provider}', $provider, $options['buttonValue']);
+                    }
+                    else {
+                        $field->value = empty($options['buttonValue']) ? __("Login with $provider") : $options['buttonValue'];
+                    }
                     //$field->icon = "{$provider}";
-                    $field->attr('id+name', "provider_{$provider}");
+                    $field->attr('id+name', strtolower("provider_{$provider}"));
                     if(!empty($options['buttonClass'])) $field->attr('class', $options['buttonClass']);
                     $form->append($field);
                 }
             }
         }
 
-        //$out .= $form->prependMarkup;
         $out .= $form->render();
-        //$out .= $form->appendMarkup;
 
         return $out;
-
     }
 
     /*
@@ -397,12 +377,14 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
     protected function _setProvider($clientId, $clientSecret, $providerName, $options = array()) {
 
         $config = wire('config');
+        $redirectUri = empty(wire('session')->getFor($this, 'redirect_uri')) ? $this->backendUrl : wire('session')->getFor($this, 'redirect_uri');
         $params = array(
             'clientId'      => $clientId,
             'clientSecret'  => $clientSecret,
-            'redirectUri'   => $this->str_lreplace('//', '/', $config->urls->httpRoot . $config->urls->admin)
+            'redirectUri'   => $redirectUri
         );
         $params = array_merge($params, $options);
+
         switch ($providerName) {
             case 'provider_google':
                 $this->provider = new $this->data['google_class']($params);
@@ -428,6 +410,30 @@ class BackendOAuth2 extends WireData implements Module, ConfigurableModule {
         }
 
         return false;
+    }
+
+    public function setRedirectUri($uri) {
+        wire('session')->setFor($this, 'redirect_uri', wire('sanitizer')->url($uri));
+    }
+
+    public function setRedirectSuccessUri($uri) {
+        wire('session')->setFor($this, 'success_uri', wire('sanitizer')->url($uri));
+    }
+
+    public function config($options = array()) {
+
+        $session = wire('session');
+        $config = wire('config');
+        $defaultOptions = array(
+            'redirect_uri'  => $this->str_lreplace('//', '/', $config->urls->httpRoot . $config->urls->admin),
+            'success_uri'   => '' // not used
+        );
+        $options = array_merge($defaultOptions, $options);
+
+        foreach ($options as $k => $v) {
+            $session->setFor($this, $k, $v);
+        }
+        return $this;
     }
 
     public static function getModuleConfigInputfields(array $data)
