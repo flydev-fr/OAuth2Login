@@ -7,7 +7,7 @@ Built on top of ThePhpLeague OAuth2-Client lib.
 *Registration is not handled by this module but planned.*
 
  
-## Howto to Install
+## Howto Install
 
 Install the module [following this procedure](https://modules.processwire.com/install-uninstall/):
 
