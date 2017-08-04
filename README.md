@@ -46,6 +46,7 @@ Once you got the keys for a provider, just paste it into the module settings and
 
 For the following example, I created a `page login` and a `template login` which contain the following code :
 
+```
     <?php namespace ProcessWire;
 
 	if(!$user->isLoggedin()) {
@@ -66,7 +67,7 @@ For the following example, I created a `page login` and a `template login` which
 	          )
 	      )->render($options);
 	}
-
+```
   
 
 
