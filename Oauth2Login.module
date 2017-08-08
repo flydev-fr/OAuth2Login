@@ -389,7 +389,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
 
         $field = $modules->get("InputfieldTextarea");
         $field->label = __('JSON Providers Config ');
-        $field->description = __("When adding a new provider, valid config keys are: **className**, **packageName**, **helpUrl**, **icon** (optional)");
+        $field->description = __("When adding a new provider, required config keys are: **className**, **packageName**, **helpUrl**, **options** (optional)");
         $field->attr('name+id', 'providers_config');
         $field->attr('value', $data['providers_config']);
         $fields->append($field);
@@ -407,6 +407,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
         $fs->collapsed = false;
         foreach ($providersArray as $provider => $providerConf) {
             // get a provider configuration
+            $data_key = '';
             $conf = self::getProvidersConfig($providerConf);
 
             $field = $modules->get("InputfieldCheckbox");
@@ -418,7 +419,9 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             $field->description = __($description);
             $field->attr('name+id', "provider_" . strtolower($conf['className']));
             if (!$skip) {
-                $field->attr('checked', ($data["provider_" . strtolower($conf['className'])] == '1' && empty($disabled)) ? 'checked' : '');
+                $data_key = isset($data["provider_" . strtolower($conf['className'])]) ? $data["provider_" . strtolower($conf['className'])] : '';
+                $field->attr('checked', ($data_key == '1' && empty($disabled)) ? 'checked' : '');
+                //$field->attr('checked', ($data["provider_" . strtolower($conf['className'])] == '1' && empty($disabled)) ? 'checked' : '');
                 //$field->attr('data-icon', (empty($conf['image'])) ? '' : $config->urls->Oauth2Login . 'assets/' . $conf['image']);
             }
             $field->attr('disabled', $disabled);
@@ -433,7 +436,8 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             $field->label = ucfirst($conf['className']) . __(" ClientID");
             $field->description = __("Can be obtained [here]({$conf['helpUrl']}).");
             $field->attr('name+id', strtolower(strtolower($conf['className']) . '_clientid'));
-            $field->attr('value', $data[strtolower($conf['className']) . '_clientid']);
+            $data_key = isset($data[strtolower($conf['className']) . "_clientid"]) ? $data[strtolower($conf['className']) . "_clientid"] : '';
+            $field->attr('value', $data_key);
             $field->columnWidth = 50;
             $fs_set->append($field);
 
@@ -441,7 +445,8 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             $field->label = __("Client Secret");
             $field->description = __("Client Secret for your website.");
             $field->attr('name+id', strtolower($conf['className'] . "_secret"));
-            $field->attr('value', $data[strtolower($conf['className']) . "_secret"]);
+            $data_key = isset($data[strtolower($conf['className']) . "_secret"]) ? $data[strtolower($conf['className']) . "_secret"] : '';
+            $field->attr('value', $data_key);
             $field->columnWidth = 50;
             $fs_set->append($field);
 
