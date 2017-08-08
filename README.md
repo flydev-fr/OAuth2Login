@@ -1,12 +1,12 @@
 # Auth2Login for ProcessWire
 
-A Module which give you ability to login **an existing user** using your favorite thrid-party OAuth2 provider (i.e. Facebook, GitHub, Google, LinkedIn, etc.).. 
+A Module which give you ability to login **an existing user** using your favorite thrid-party OAuth2 provider (i.e. Facebook, GitHub, Google, LinkedIn, etc.)..
 You can login from the backend to the backend directly or render a form on the frontend and redirect the user to a choosen page.
 Built on top of ThePhpLeague OAuth2-Client lib.
 
 *Registration is not handled by this module but planned.*
 
- 
+
 ## Howto Install
 
 Install the module [following this procedure](https://modules.processwire.com/install-uninstall/):
@@ -38,7 +38,57 @@ First (and for testing purpose), you should create a new user in ProcessWire tha
 
 Next step, go to your favorite provider and create an app in order to get the ClientId and ClientSecret keys. *Ask on the forum if you have difficulties getting there.*
 
-Once you got the keys for a provider, just paste it into the module settings and save it. One or more button should appear bellow the standard login form. 
+Once you got the keys for a provider, just paste it into the module settings and save it. One or more button should appear bellow the standard login form.
+
+
+The final step is to make your JSON configuration file.
+
+Check this sample :
+```
+{
+  "providers": {
+    "google": {
+      "className": "Google",
+      "packageName": "league/oauth2-google",
+      "helpUrl": "https://console.developers.google.com/apis/credentials"
+    },
+    "facebook": {
+      "className": "Facebook",
+      "packageName": "league/oauth2-facebook",
+      "helpUrl": "https://developers.facebook.com/apps/",
+      "options": {
+        "graphApiVersion": "v2.10",
+        "scope": "email"
+      }
+    },
+    "github": {
+      "className": "Github",
+      "packageName": "league/oauth2-github",
+      "helpUrl": "https://github.com/settings/developers",
+      "options": {
+        "scope": "user:email"
+      }
+    },
+    "linkedin": {
+      "className": "LinkedIn",
+      "packageName": "league/oauth2-linkedin",
+      "helpUrl": "https://www.linkedin.com/secure/developer"
+    }
+  }
+}
+```
+
+
+### Backend Usage
+
+In `ready.php`, call the module :
+```
+if($page->template == 'admin') {
+    $oauth2mod = $modules->get('Oauth2Login');
+    if($oauth2mod)
+        $oauth2mod->hookBackend();
+}
+```
 
 
 ### Frontend Usage
@@ -68,6 +118,6 @@ For the following example, I created a `page login` and a `template login` which
 	      )->render($options);
 	}
 ```
-  
+
 
 

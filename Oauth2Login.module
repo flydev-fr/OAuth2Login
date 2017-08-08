@@ -7,21 +7,28 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
 
     protected $data;
     public static $_data;
+    protected static $configFile;
+    protected static $validConfigKeys = array(
+        'className',
+        'packageName',
+        'keysUrl',
+        'options'
+    );
     protected $backendUrl;
     protected $provider;
-    protected $allProviders = array();
+    protected $providerParams;
 
 
     public static function getModuleInfo()
     {
         return [
             'title' => 'OAuth2Login',
-            'version' => "0.0.2",
+            'version' => "0.0.3",
             'summary' => 'OAuth2 login for ProcessWire.',
             'author' => 'flydev',
             'href' => 'https://processwire.com',
-            'singular' => false,
-            'autoload' => true,
+            'singular' => true,
+            'autoload' => false,
             'icon' => 'plug',
             'requires' => [
                 'ProcessWire>=3.0.0'
@@ -36,30 +43,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     protected static function getDefaultData()
     {
         return array(
-            'provider_google'   => 0,
-            'provider_facebook' => 0,
-            'provider_github'   => 0,
-            'provider_linkedin' => 0,
-
-            'google_token'      => '',
-            'linkedin_token'    => '',
-            'linkedin_expire'   => '',
-            'facebook_token'    => '',
-
-            'google_class'   => '\League\OAuth2\Client\Provider\Google',
-            'facebook_class' => '\League\OAuth2\Client\Provider\Facebook',
-            'github_class'   => '\League\OAuth2\Client\Provider\Github',
-            'linkedin_class' => '\League\OAuth2\Client\Provider\LinkedIn',
-
-            'google_clientid'   => '',
-            'google_secret'     => '',
-            'facebook_appid'    => '',
-            'facebook_secret'   => '',
-            'github_clientid'   => '',
-            'github_secret'     => '',
-            'linkedin_clientid' => '',
-            'linkedin_secret'   => ''
-
+            'providers_config'  => ''
         );
     }
 
@@ -79,142 +63,106 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             $this->$key = $value;
         }
 
-        self::$_data = $this;
-
         parent::__construct();
     }
 
     public function init() {
 
-        $this->config->styles->add($this->config->urls->Oauth2Login . 'Oauth2Login.css');
+        self::$_data = $this;
+        //$this->config->styles->add($this->config->urls->Oauth2Login . 'Oauth2Login.css');
+        //$this->config->scripts->add($this->config->urls->Oauth2Login . 'Oauth2Login.js');
 
         $this->backendUrl = $this->str_lreplace('//', '/', wire('config')->urls->httpRoot . wire('config')->urls->admin);
 
-        $this->addHookAfter('Page::render', function($event) {
-            $template = $event->object->template;
-            $id = $event->object->id;
-
-            if ($template == 'admin' && $id === 23 && !wire('user')->isLoggedin()) {
-                $this->setRedirectUri($this->backendUrl);
-                $this->setRedirectSuccessUri($this->backendUrl);
-                $form = $this->render();
-                $event->return = $this->replaceForm($event->return, '</form>', $form);
-            }
-        });
-
-        $this->run();
+        $this->processLogin();
     }
 
-    protected function ___run() {
+    public function getCode($providerName) {
 
         $input = wire('input');
         $user = wire('user');
         $session = wire('session');
 
-        $provider_name = $this->getProviderName();
-        if(!$this->setProvider($provider_name)) return false;
+        $token = null;
 
-        if(isset($input->post->{$provider_name})  && !$user->isLoggedin()) {
+        if (isset($input->post->{$providerName}) && !$user->isLoggedin()) {
 
             try {
                 $session->CSRF->validate();
-            }
-            catch (WireCSRFException $e) {
+            } catch (WireCSRFException $e) {
                 $this->log('SessionToken is invalid, possible CSRF attack in progress');
             }
 
             if (empty($input->get->code)) {
-                $options = array();
-                if($provider_name === 'provider_github') {
-                    $options = array('scope' => ['user:email']);
-                }
-                elseif ($provider_name === 'provider_facebook') {
-                    $options = array('scope' => ['email']);
-                }
-                $authUrl = $this->provider->getAuthorizationUrl($options);
+                $authUrl = $this->provider->getAuthorizationUrl($this->providerParams);
                 $session->set('oauth2state', $this->provider->getState());
-                $session->set('provider', $provider_name);
+                $session->set('provider', $providerName);
                 $session->redirect($authUrl);
-            }
-            elseif (empty($input->get->state) || $input->get->state !== $session->get('oauth2state')) {
+            } elseif (empty($input->get->state) || $input->get->state !== $session->get('oauth2state')) {
                 $this->log('State is invalid, possible CSRF attack in progress');
                 $session->remove('oauth2state');
                 $session->remove('provider');
-                if($session->isLoggedin()) $session->logout();
+                $session->logout();
             }
         }
-        elseif(!$user->isLoggedin() && !empty($input->get->code) && !empty($session->get('oauth2state'))) {
-            $token = null;
-            switch ($provider_name) {
-                // GOOGLE
-                case 'provider_google':
-                    if(!empty($this->data['google_token'])) {
-                        $grant = new \League\OAuth2\Client\Grant\RefreshToken();
-                        $token = $this->provider->getAccessToken($grant, ['refresh_token' => $this->data['google_token']]);
-                    }
-                    else {
-                        $token = $this->provider->getAccessToken('authorization_code', [
-                            'code' => $input->get->code
-                        ]);
-                        if (!is_null($token->getRefreshToken()))
-                            $this->data['google_token'] = $token->getRefreshToken();
-                    }
-                    break;
+        elseif (!$user->isLoggedin() && !empty($input->get->code) && !empty($session->get('oauth2state'))) {
 
-                // FACEBOOK
-                case 'provider_facebook':
-                // LINKEDIN
-                case 'provider_linkedin':
-                // GITHUB
-                case 'provider_github':
-                    $token = $this->provider->getAccessToken('authorization_code', [
-                        'code' => $input->get->code
-                    ]);
-                    break;
+            $token = $this->provider->getAccessToken('authorization_code', [
+                'code' => $input->get->code
+            ]);
+        }
 
-                default:
-                    $session->remove('oauth2state');
-                    $session->remove('provider');
-                    $token =  null;
+        return $token;
+    }
+
+    protected function ___processLogin() {
+
+        $session = wire('session');
+
+        $providerName = $this->getProviderName();
+        if(!$this->setProvider($providerName)) return false;
+
+        $token = $this->getCode($providerName);
+
+        if(is_null($token)) return false;
+
+        try {
+            $ownerDetails = $this->provider->getResourceOwner($token);
+
+            if(method_exists($ownerDetails, 'getLastName') || method_exists($ownerDetails, 'getFirstName')) {
+                $username = !empty($ownerDetails->getLastName()) ? $ownerDetails->getLastName() : '';
+                $username = !empty($username) && !empty($ownerDetails->getFirstName()) ? $username . '-' : '';
+                $username = !empty($ownerDetails->getFirstName()) ? $username . $ownerDetails->getFirstName() : $username;
             }
-
-            if(is_null($token)) return false;
-
-            try {
+            elseif(method_exists($ownerDetails, 'getName')) {
                 $ownerDetails = $this->provider->getResourceOwner($token);
-
-                if($provider_name === 'provider_github') {
-                    $this->provider->scope = '/user/emails';
-                    $ownerDetails = $this->provider->getResourceOwner($token);
-                    $emails = $ownerDetails->getEmails();
-                    $this->provider->scope = '/user';
-                    $ownerDetails = $this->provider->getResourceOwner($token);
-                    $username = $ownerDetails->getName();
-                }
-                else {
-                    $username = $ownerDetails->getLastName();
-                    $username .= !empty($ownerDetails->getLastName()) ? ' ' . $ownerDetails->getFirstName() : $ownerDetails->getFirstName();
-                    $emails = array($ownerDetails->getEmail());
-                }
-
-                if($this->checkUsername($username, $emails)) {
-                    $loginUser = $session->forceLogin($username);
-                    if ($loginUser && $loginUser->id) {
-                        $this->log("Used {$provider_name} to login for user: $loginUser->name");
-                        $session->set('forceLogin', true);
-                        if(!empty($session->getFor($this, 'success_uri')))
-                            $session->redirect($session->getFor($this, 'success_uri'));
-                    }
-                }
-            } catch (Exception $e) {
-                $this->log('Something went wrong: ' . $e->getMessage());
-                //$session->redirect($config->urls->admin);
-                throw new WireException(__("Something went wrong: Please advise the administrator"));
+                $username = $ownerDetails->getName();
+            }
+            $emails = null;
+            if(method_exists($ownerDetails, 'getEmail')) {
+                $emails = array($ownerDetails->getEmail());
+            }
+            if(method_exists($ownerDetails, 'getEmails')) {
+                // need to fix that
+                $this->provider->domain = 'https://github.com:emails';
+                $ownerDetails = $this->provider->getResourceOwner($token);
+                $emails = $ownerDetails->getEmails();
             }
 
+            if($this->checkUsername($username, $emails)) {
+                $loginUser = $session->forceLogin($username);
+                if ($loginUser && $loginUser->id) {
+                    $this->log("Used {$providerName} to login for user: $loginUser->name");
+                    $session->set('forceLogin', true);
+                    if(!empty($session->getFor($this, 'success_uri')))
+                        $session->redirect($session->getFor($this, 'success_uri'));
+                }
+            }
+        } catch (\Exception $e) {
+            $this->log('Something went wrong: ' . $e->getMessage());
+            //$session->redirect($config->urls->admin);
+            throw new WireException(__("Something went wrong: Please advise the administrator"));
         }
-
-
     }
 
     /*
@@ -223,6 +171,19 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     protected function str_lreplace($search, $replace, $subject) {
 
         return preg_replace('~(.*)' . preg_quote($search, '~') . '~', '$1' . $replace, $subject, 1);
+    }
+
+    public function ___hookBackend() {
+        $this->addHookAfter('Page::render', function(HookEvent $event) {
+            $template = $event->object->template;
+
+            if ($template == 'admin' && !wire('user')->isLoggedin()) {
+                $this->setRedirectUri($this->backendUrl);
+                $this->setRedirectSuccessUri($this->backendUrl);
+                $form = $this->render();
+                $event->return = $this->replaceForm($event->return, '</form>', $form);
+            }
+        });
     }
 
     protected function replaceForm($event_ret, $start_html, $form) {
@@ -268,14 +229,12 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
                 $provider = str_replace('provider_', '', $key);
                 $provider = ucfirst($provider);
                 if(class_exists('\League\OAuth2\Client\Provider\\' . $provider)) {
-                    array_push($this->allProviders, $key);
-
                     $field = $modules->get("InputfieldSubmit");
                     if(strstr($options['buttonValue'], '{provider}')) {
                         $field->value = str_replace('{provider}', $provider, $options['buttonValue']);
                     }
                     else {
-                        $field->value = empty($options['buttonValue']) ? __("Login with $provider") : $options['buttonValue'];
+                        $field->value = empty($options['buttonValue']) ? __("Login with ") . $provider : $options['buttonValue'];
                     }
                     //$field->icon = "{$provider}";
                     $field->attr('id+name', strtolower("provider_{$provider}"));
@@ -300,9 +259,10 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
         $username = wire('sanitizer')->pageName($username);
 
         foreach ($emails as $email) {
+            $email = wire('sanitizer')->email($email);
             $q = "email=$email, name=$username";
             if(wire('users')->get("{$q}")->id) {
-                //bd("user: $username, email: $email");
+                //bd("logged with user: $username, email: $email");
                 return true;
             }
         }
@@ -311,105 +271,60 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     }
 
     protected function getProviderName() {
+        $providerName = null;
 
         foreach (wire('input')->post as $item => $value) {
             if($r = strstr($item, 'provider_')) {
-                $provider_name = $r;
+                $providerName = $r;
             }
         }
 
-        if(empty($provider_name)) {
-            $provider_name = wire('session')->get('provider');
+        if(is_null($providerName)) {
+            $providerName = wire('session')->get('providerName');
         }
 
-        return $provider_name;
+        return $providerName;
     }
 
-    protected function setProvider($provider_name) {
+    protected function setProvider($providerName, $options = array()) {
 
-        switch ($provider_name) {
-            case 'provider_google':
-                $this->_setProvider(
-                    $this->data['google_clientid'],
-                    $this->data['google_secret'],
-                    $provider_name
-                );
-                break;
-
-            case 'provider_facebook':
-                $this->_setProvider(
-                    $this->data['facebook_appid'],
-                    $this->data['facebook_secret'],
-                    $provider_name,
-                    array('graphApiVersion' => 'v2.10')
-                );
-                break;
-
-            case 'provider_github':
-                $this->_setProvider(
-                    $this->data['github_clientid'],
-                    $this->data['github_secret'],
-                    $provider_name
-                );
-                break;
-
-            case 'provider_linkedin':
-                $this->_setProvider(
-                    $this->data['linkedin_clientid'],
-                    $this->data['linkedin_secret'],
-                    $provider_name
-                );
-                break;
-
-            default:
-                $this->provider = null;
-                break;
-        }
-
-        if(is_null($this->provider)) {
-            wire('session')->set('provider', 'null');
+        if(is_null($providerName)) {
             return false;
         }
 
-        return true;
-    }
-
-    protected function _setProvider($clientId, $clientSecret, $providerName, $options = array()) {
-
-        $config = wire('config');
         $redirectUri = empty(wire('session')->getFor($this, 'redirect_uri')) ? $this->backendUrl : wire('session')->getFor($this, 'redirect_uri');
+        $subclass = ucfirst(str_replace('provider_', '', $providerName));
+        $class = '\League\OAuth2\Client\Provider\\' . $subclass;
+        $subclass = strtolower($subclass);
+        $varClientId = $subclass . '_clientid';
+        $varSecret = $subclass . '_secret';
+
+        if(!isset($this->data[$varClientId]) || !isset($this->data[$varSecret]))
+            return false;
+
         $params = array(
-            'clientId'      => $clientId,
-            'clientSecret'  => $clientSecret,
+            'clientId'      => $this->data[$varClientId],
+            'clientSecret'  => $this->data[$varSecret],
             'redirectUri'   => $redirectUri
         );
         $params = array_merge($params, $options);
-
-        switch ($providerName) {
-            case 'provider_google':
-                $this->provider = new $this->data['google_class']($params);
-                break;
-            case 'provider_facebook':
-                $this->provider = new $this->data['facebook_class']($params);
-                break;
-            case 'provider_github':
-                $this->provider = new $this->data['github_class']($params);
-                break;
-            case 'provider_linkedin':
-                $this->provider = new $this->data['linkedin_class']($params);
-                break;
-
+        foreach ($this->data as $key => $value) {
+            $r = strstr($key, 'provider_options_' . $subclass);
+            if(!empty($r)) {
+                $newOption = str_replace('provider_options_' . $subclass . '_', '', $key);
+                $params = array_merge($params, array($newOption => $value));
+            }
         }
-        wire('session')->set('provider', $providerName);
+        $this->providerParams = $params;
+        $this->provider = new $class($params);
+        wire('session')->set('providerName', $providerName);
+
+        return (is_null($this->provider)) ? false : true;
     }
 
     protected static function checkProviderClass($class) {
 
-        if(class_exists($class)) {
-            return true;
-        }
-
-        return false;
+        return class_exists($class);
     }
 
     public function setRedirectUri($uri) {
@@ -423,10 +338,9 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     public function config($options = array()) {
 
         $session = wire('session');
-        $config = wire('config');
         $defaultOptions = array(
-            'redirect_uri'  => $this->str_lreplace('//', '/', $config->urls->httpRoot . $config->urls->admin),
-            'success_uri'   => '' // not used
+            'redirect_uri'  => $this->backendUrl,
+            'success_uri'   => ''
         );
         $options = array_merge($defaultOptions, $options);
 
@@ -436,163 +350,115 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
         return $this;
     }
 
-    public static function getModuleConfigInputfields(array $data)
-    {
+    protected static function getProvidersJsonConfigAsArray() {
+
+        $configArray = json_decode(self::$_data['providers_config'], true);
+        if(empty($configArray)) return false;
+        $fullarray = array();
+
+        foreach ($configArray as $key) {
+            foreach ($key as $k => $v) {
+                $fullarray[$k] = $v;
+            }
+        }
+
+        return $fullarray;
+    }
+
+    protected static function getProvidersConfig(array $providerConfig) {
+
+        $fullarray = array();
+
+        foreach ($providerConfig as $k => $v) {
+            $fullarray[$k] = $v;
+        }
+
+        return $fullarray;
+    }
+
+    public static function getModuleConfigInputfields(array $data) {
+
         $data = array_merge(self::getDefaultData(), $data);
         $config = wire('config');
         $modules = wire('modules');
-        $input = wire('input');
-
+        $skip = false;
         $disabled = 'disabled';
+        $n = 0;
 
         $fields = new InputfieldWrapper();
 
+        $field = $modules->get("InputfieldTextarea");
+        $field->label = __('JSON Providers Config ');
+        $field->description = __("When adding a new provider, valid config keys are: **className**, **packageName**, **helpUrl**, **icon** (optional)");
+        $field->attr('name+id', 'providers_config');
+        $field->attr('value', $data['providers_config']);
+        $fields->append($field);
+
+        // get all the providers config
+        $providersArray = self::getProvidersJsonConfigAsArray();
+        if(empty($providersArray)) {
+            return $fields;
+        }
+
         $fs = $modules->get("InputfieldFieldset");
-        $fs->label = __("Backend Login Method");
+        $fs->label = __("Providers");
         $fs->icon = 'cogs';
-        $fs->description = __("Choose one or more of the following third-party login method.");
+        $fs->description = __("Choose one or more of the following third-party login provider.");
         $fs->collapsed = false;
+        foreach ($providersArray as $provider => $providerConf) {
+            // get a provider configuration
+            $conf = self::getProvidersConfig($providerConf);
 
-        // GOOGLE
-        $field = $modules->get("InputfieldCheckbox");
-        $description = (self::checkProviderClass($data['google_class'])) ? $disabled = '' : __("The required package is not installed. Please run the following command to install this provider: **composer require league/oauth2-google**");
-        $field->label = __('Google');
-        $field->description = __($description);
-        $field->attr('name+id', 'provider_google');
-        $field->attr('checked', ($data['provider_google'] == '1' && empty($disabled)) ? 'checked' : '' );
-        $field->attr('disabled', $disabled);
-        $fs->append($field);
+            $field = $modules->get("InputfieldCheckbox");
+            if(!self::checkProviderClass('\League\OAuth2\Client\Provider\\' . ucfirst($provider))) {
+                $skip = true;
+            }
+            $description = ($skip == false) ? $disabled = '' : __("The required package is not installed. Please run the following command to install this provider: **composer require {$conf['packageName']}**");
+            $field->label = ucfirst($provider);
+            $field->description = __($description);
+            $field->attr('name+id', "provider_" . strtolower($conf['className']));
+            if (!$skip) {
+                $field->attr('checked', ($data["provider_" . strtolower($conf['className'])] == '1' && empty($disabled)) ? 'checked' : '');
+                //$field->attr('data-icon', (empty($conf['image'])) ? '' : $config->urls->Oauth2Login . 'assets/' . $conf['image']);
+            }
+            $field->attr('disabled', $disabled);
+            $fs->append($field);
+            $fs_set = $modules->get("InputfieldFieldset");
+            $fs_set->label = ucfirst($conf['className']) . __(" Settings");
+            $fs_set->icon = strtolower($conf['className']);
+            $fs_set->collapsed = true;
+            $fs_set->showIf = "provider_" . strtolower($conf['className']) . "=1";
 
-        $fs_google = $modules->get("InputfieldFieldset");
-        $fs_google->label = __("Google Settings");
-        $fs_google->icon = 'google';
-        $fs_google->collapsed = !empty($disabled);
-        $fs_google->showIf = "provider_google=1";
+            $field = $modules->get("InputfieldText");
+            $field->label = ucfirst($conf['className']) . __(" ClientID");
+            $field->description = __("Can be obtained [here]({$conf['helpUrl']}).");
+            $field->attr('name+id', strtolower(strtolower($conf['className']) . '_clientid'));
+            $field->attr('value', $data[strtolower($conf['className']) . '_clientid']);
+            $field->columnWidth = 50;
+            $fs_set->append($field);
 
-        $field = $modules->get("InputfieldText");
-        $field->label = __("Google ClientID");
-        $field->description = __("Can be obtained [here](https://console.developers.google.com/apis/credentials).");
-        $field->attr('name+id', 'google_clientid');
-        $field->attr('value', $data['google_clientid']);
-        $field->columnWidth = 50;
-        $fs_google->append($field);
+            $field = $modules->get("InputfieldText");
+            $field->label = __("Client Secret");
+            $field->description = __("Client Secret for your website.");
+            $field->attr('name+id', strtolower($conf['className'] . "_secret"));
+            $field->attr('value', $data[strtolower($conf['className']) . "_secret"]);
+            $field->columnWidth = 50;
+            $fs_set->append($field);
 
-        $field = $modules->get("InputfieldText");
-        $field->label = __("Client Secret");
-        $field->description = __("Client Secret for your website.");
-        $field->attr('name+id', 'google_secret');
-        $field->attr('value', $data['google_secret']);
-        $field->columnWidth = 50;
-        $fs_google->append($field);
-        $fs->append($fs_google);
-        $disabled = 'disabled';
+            if(isset($conf['options'])) {
+                foreach ($conf['options'] as $key => $value) {
+                    $field = $modules->get("InputfieldHidden");
+                    $field->attr('name+id', 'provider_options_' . strtolower($provider) . '_' . $key);
+                    $field->attr('value', $value);
+                    $fs_set->append($field);
+                }
+            }
 
-        // FACEBOOK
-        $field = $modules->get("InputfieldCheckbox");
-        $description = (self::checkProviderClass($data['facebook_class'])) ? $disabled = '' : __("The required package is not installed. Please run the following command to install this provider: **composer require league/oauth2-facebook**");
-        $field->label = __('Facebook');
-        $field->description = __($description);
-        $field->attr('name+id', 'provider_facebook');
-        $field->attr('checked', ($data['provider_facebook'] == '1' && empty($disabled)) ? 'checked' : '' );
-        $field->attr('disabled', $disabled);
-        $fs->append($field);
-
-        $fs_facebook = $modules->get("InputfieldFieldset");
-        $fs_facebook->label = __("Facebook Settings");
-        $fs_facebook->icon = 'facebook';
-        $fs_facebook->collapsed = !empty($disabled);
-        $fs_facebook->showIf = "provider_facebook=1";
-
-        $field = $modules->get("InputfieldText");
-        $field->label = __("Facebook AppID");
-        $field->description = __("Can be obtained [here](https://developers.facebook.com/apps/).");
-        $field->attr('name+id', 'facebook_appid');
-        $field->attr('value', $data['facebook_appid']);
-        $field->columnWidth = 50;
-        $fs_facebook->append($field);
-
-        $field = $modules->get("InputfieldText");
-        $field->label = __("App Secret");
-        $field->description = __("App Secret for your website.");
-        $field->attr('name+id', 'facebook_secret');
-        $field->attr('value', $data['facebook_secret']);
-        $field->columnWidth = 50;
-        $fs_facebook->append($field);
-        $fs->append($fs_facebook);
-        $disabled = 'disabled';
-
-
-        // GITHUB
-        $field = $modules->get("InputfieldCheckbox");
-        $description = (self::checkProviderClass($data['github_class'])) ? $disabled = '' : __("The required package is not installed. Please run the following command to install this provider: **composer require league/oauth2-github**");
-        $field->label = __('Github');
-        $field->description = __($description);
-        $field->attr('name+id', 'provider_github');
-        $field->attr('checked', ($data['provider_github'] == '1' && empty($disabled)) ? 'checked' : '' );
-        $field->attr('disabled', $disabled);
-        $fs->append($field);
-
-        $fs_github = $modules->get("InputfieldFieldset");
-        $fs_github->label = __("Github Settings");
-        $fs_github->icon = 'github';
-        $fs_github->collapsed = !empty($disabled);
-        $fs_github->showIf = "provider_github=1";
-
-
-        $field = $modules->get("InputfieldText");
-        $field->label = __("Github ClientID");
-        $field->description = __("Can be obtained [here](https://github.com/settings/developers).");
-        $field->attr('name+id', 'github_clientid');
-        $field->attr('value', $data['github_clientid']);
-        $field->columnWidth = 50;
-        $fs_github->append($field);
-
-        $field = $modules->get("InputfieldText");
-        $field->label = __("Client Secret");
-        $field->description = __("Client Secret for your website.");
-        $field->attr('name+id', 'github_secret');
-        $field->attr('value', $data['github_secret']);
-        $field->columnWidth = 50;
-        $fs_github->append($field);
-        $fs->append($fs_github);
-        $disabled = 'disabled';
-
-
-        // LINEDIN
-        $field = $modules->get("InputfieldCheckbox");
-        $description = (self::checkProviderClass($data['linkedin_class'])) ? $disabled = '' : __("The required package is not installed. Please run the following command to install this provider: **composer require league/oauth2-linkedin**");
-        $field->label = __('LinkedIn');
-        $field->description = __($description);
-        $field->attr('name+id', 'provider_linkedin');
-        $field->attr('checked', ($data['provider_linkedin'] == '1' && empty($disabled)) ? 'checked' : '' );
-        $field->attr('disabled', $disabled);
-        $fs->append($field);
-
-        $fs_linkedin = $modules->get("InputfieldFieldset");
-        $fs_linkedin->label = __("LinkedIn Settings");
-        $fs_linkedin->icon = 'linkedin';
-        $fs_linkedin->collapsed = !empty($disabled);
-        $fs_linkedin->showIf = "provider_linkedin=1";
-
-
-        $field = $modules->get("InputfieldText");
-        $field->label = __("LinkedIn ClientID");
-        $field->description = __("Can be obtained [here](https://github.com/settings/developers).");
-        $field->attr('name+id', 'linkedin_clientid');
-        $field->attr('value', $data['linkedin_clientid']);
-        $field->columnWidth = 50;
-        $fs_linkedin->append($field);
-
-        $field = $modules->get("InputfieldText");
-        $field->label = __("Client Secret");
-        $field->description = __("Client Secret for your website.");
-        $field->attr('name+id', 'linkedin_secret');
-        $field->attr('value', $data['linkedin_secret']);
-        $field->columnWidth = 50;
-        $fs_linkedin->append($field);
-        $fs->append($fs_linkedin);
-        $disabled = 'disabled';
-
+            $fs->append($fs_set);
+            $disabled = true;
+            $skip = false;
+            $n++;
+        }
         $fields->append($fs);
 
         return $fields;
