@@ -23,10 +23,10 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     {
         return [
             'title' => 'OAuth2Login',
-            'version' => "0.0.3",
+            'version' => "0.0.4",
             'summary' => 'OAuth2 login for ProcessWire.',
             'author' => 'flydev',
-            'href' => 'https://processwire.com',
+            'href' => 'https://modules.processwire.com/modules/oauth2-login/',
             'singular' => true,
             'autoload' => false,
             'icon' => 'plug',
@@ -316,6 +316,9 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             }
         }
         $this->providerParams = $params;
+        if(!self::checkProviderClass($class)) {
+            return false;
+        }
         $this->provider = new $class($params);
         wire('session')->set('providerName', $providerName);
 
@@ -379,11 +382,9 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     public static function getModuleConfigInputfields(array $data) {
 
         $data = array_merge(self::getDefaultData(), $data);
-        $config = wire('config');
         $modules = wire('modules');
         $skip = false;
         $disabled = 'disabled';
-        $n = 0;
 
         $fields = new InputfieldWrapper();
 
@@ -462,7 +463,6 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             $fs->append($fs_set);
             $disabled = true;
             $skip = false;
-            $n++;
         }
         $fields->append($fs);
 
