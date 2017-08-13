@@ -29,10 +29,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             'href' => 'https://modules.processwire.com/modules/oauth2-login/',
             'singular' => true,
             'autoload' => false,
-            'icon' => 'plug',
-            'requires' => [
-                'ProcessWire>=3.0.0'
-            ]
+            'icon' => 'plug'
         ];
     }
 
