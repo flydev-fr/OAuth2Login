@@ -11,7 +11,7 @@ Built on top of ThePhpLeague OAuth2-Client lib.
 
 Install the module [following this procedure](https://modules.processwire.com/install-uninstall/):
 
- - https://modules.processwire.com/OAuth2Login
+ - https://modules.processwire.com/modules/oauth2-login/
  - https://github.com/flydev-fr/OAuth2Login
 
 Next step, in order to use a provider, you need to use [Composer](https://getcomposer.org/doc/00-intro.md) to install each provider.
