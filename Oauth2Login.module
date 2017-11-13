@@ -69,7 +69,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
         //$this->config->styles->add($this->config->urls->Oauth2Login . 'Oauth2Login.css');
         //$this->config->scripts->add($this->config->urls->Oauth2Login . 'Oauth2Login.js');
 
-        $this->backendUrl = $this->str_lreplace('//', '/', wire('config')->urls->httpRoot . wire('config')->urls->admin);
+        $this->backendUrl = urls()->httpAdmin;
 
         $this->processLogin();
     }
