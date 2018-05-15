@@ -23,7 +23,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     {
         return [
             'title' => 'OAuth2Login',
-            'version' => "0.0.4",
+            'version' => "1.0.0",
             'summary' => 'OAuth2 login for ProcessWire.',
             'author' => 'flydev',
             'href' => 'https://modules.processwire.com/modules/oauth2-login/',
@@ -69,7 +69,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
         //$this->config->styles->add($this->config->urls->Oauth2Login . 'Oauth2Login.css');
         //$this->config->scripts->add($this->config->urls->Oauth2Login . 'Oauth2Login.js');
 
-        $this->backendUrl = urls()->httpAdmin;
+        $this->backendUrl = $this->config->urls->httpAdmin;
 
         $this->processLogin();
     }
