@@ -69,6 +69,8 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
         //$this->config->styles->add($this->config->urls->Oauth2Login . 'Oauth2Login.css');
         //$this->config->scripts->add($this->config->urls->Oauth2Login . 'Oauth2Login.js');
 
+		$this->addHookAfter('Page(template.name=admin)::render', $this, 'hookBackend');
+
         $this->backendUrl = $this->config->urls->httpAdmin;
 
         $this->processLogin();
@@ -170,18 +172,15 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
         return preg_replace('~(.*)' . preg_quote($search, '~') . '~', '$1' . $replace, $subject, 1);
     }
 
-    public function ___hookBackend() {
-        $this->addHookAfter('Page::render', function(HookEvent $event) {
-            $template = $event->object->template;
-
-            if ($template == 'admin' && !wire('user')->isLoggedin()) {
-                $this->setRedirectUri($this->backendUrl);
-                $this->setRedirectSuccessUri($this->backendUrl);
-                $form = $this->render();
-                $event->return = $this->replaceForm($event->return, '</form>', $form);
-            }
-        });
-    }
+    public function hookBackend(HookEvent $event)
+	{
+		if (!wire('user')->isLoggedin()) {
+			$this->setRedirectUri($this->backendUrl);
+			$this->setRedirectSuccessUri($this->backendUrl);
+			$form = $this->render();
+			$event->return = $this->replaceForm($event->return, '</form>', $form);
+		}
+	}
 
     protected function replaceForm($event_ret, $start_html, $form) {
 
