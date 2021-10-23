@@ -23,7 +23,7 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
     {
         return [
             'title' => 'OAuth2Login',
-            'version' => "1.0.0",
+            'version' => "1.0.1",
             'summary' => 'OAuth2 login for ProcessWire.',
             'author' => 'flydev',
             'href' => 'https://modules.processwire.com/modules/oauth2-login/',
@@ -141,28 +141,31 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
             if (empty($username) && method_exists($ownerDetails, 'getNickname')) {
                 $username = $ownerDetails->getNickname();
             }
+
             $emails = null;
             if(method_exists($ownerDetails, 'getEmail')) {
                 $emails = array($ownerDetails->getEmail());
             }
+
             if(method_exists($ownerDetails, 'getEmails')) {
                 // need to fix that
                 $this->provider->domain = 'https://github.com:emails';
                 $ownerDetails = $this->provider->getResourceOwner($token);
                 $emails = $ownerDetails->getEmails();
             }
+            
 
             if($this->checkUsername($username, $emails)) {
                 $loginUser = $session->forceLogin($username);
                 if ($loginUser && $loginUser->id) {
-                    $this->log("Used {$providerName} to login for user: $loginUser->name");
+                    $this->wire->log("Used {$providerName} to login for user: $loginUser->name");
                     $session->set('forceLogin', true);
                     if(!empty($session->getFor($this, 'success_uri')))
                         $session->redirect($session->getFor($this, 'success_uri'));
                 }
             }
         } catch (\Exception $e) {
-            $this->log('Something went wrong: ' . $e->getMessage());
+            $this->wire->log('Something went wrong: ' . $e->getMessage());
             //$session->redirect($config->urls->admin);
             throw new WireException(__("Something went wrong: Please advise the administrator"));
         }
