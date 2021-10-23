@@ -137,6 +137,10 @@ class Oauth2Login extends WireData implements Module, ConfigurableModule {
                 $ownerDetails = $this->provider->getResourceOwner($token);
                 $username = $ownerDetails->getName();
             }
+
+            if (empty($username) && method_exists($ownerDetails, 'getNickname')) {
+                $username = $ownerDetails->getNickname();
+            }
             $emails = null;
             if(method_exists($ownerDetails, 'getEmail')) {
                 $emails = array($ownerDetails->getEmail());
